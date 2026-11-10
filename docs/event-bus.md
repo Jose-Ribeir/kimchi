@@ -49,6 +49,7 @@ interface PlanReviewRequestPayload {
 | Producer | `source` | When |
 |---|---|---|
 | `submit_plan` tool (adhoc plan mode) | `"adhoc"` | Model calls `submit_plan` with the completed plan |
+| `revise_plan` tool (adhoc plan mode) | `"adhoc"` | Model calls `revise_plan` with find/replace hunks over the submitted plan |
 | `propose_ferment_scoping` tool (ferment) | `"ferment"` | Model calls `propose_ferment_scoping` with the scoping payload (terminate: true) |
 | `agent_end` handler (ferment) | `"ferment"` | Pending review exists at turn end without an in-turn emit (e.g. restored state) |
 | `setPendingPlanReviewTrigger` (resume) | `"ferment"` | Draft ferment resumed with a persisted pending proposal |

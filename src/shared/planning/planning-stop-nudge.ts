@@ -88,11 +88,13 @@ export const FERMENT_SCOPING_STOP_NUDGE_ONESHOT = markHarnessSteer(
 export const FERMENT_SCOPING_STOP_NUDGE = FERMENT_SCOPING_STOP_NUDGE_INTERACTIVE
 
 /**
- * Returns true if the turn's tool calls include `submit_plan` — the adhoc
- * plan-mode completion signal. Mirrors {@link hasFermentScopingCompletionSignal}.
+ * Returns true if the turn's tool calls include the plan-review handoff —
+ * `submit_plan` (first submission) or `revise_plan` (a rework round), both
+ * of which hand the turn to the review flow. Mirrors
+ * {@link hasFermentScopingCompletionSignal}.
  */
 export function hasPlanSubmitToolCall(toolNames: string[]): boolean {
-	return toolNames.includes("submit_plan")
+	return toolNames.includes("submit_plan") || toolNames.includes("revise_plan")
 }
 
 /**

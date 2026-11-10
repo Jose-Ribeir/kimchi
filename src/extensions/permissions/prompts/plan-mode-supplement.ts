@@ -31,7 +31,9 @@ STEP 5 (Plan):
 - Do NOT call \`submit_plan\` on intermediate drafts, while posing clarifying questions,
   or while any Open Question remains unresolved. The approval menu will not appear until all
   Open Questions are cleared.
-- If the plan is denied with feedback, revise the plan and call \`submit_plan\` again.
+- If the plan is denied with feedback, apply the requested edits with the \`revise_plan\`
+  tool (find/replace hunks over the submitted plan — no need to re-emit the full text).
+  Call \`submit_plan\` again only for a wholesale rewrite.
 
 ## Plan File Persistence
 

@@ -17,7 +17,7 @@ return {
 - Multiple entries allowed (capped per result at 32 — a buggy tool must not burst chunks); empty/malformed entries are skipped.
 - Declared paths are authoritative (no freshness window), but existence is still verified on live turns. Only declare files the tool actually wrote.
 
-Current producers: `submit_plan` and the ferment plan tools (they save `.kimchi/plans/*.md` inside `execute`).
+Current producers: `submit_plan`, `revise_plan`, and the ferment plan tools (they save `.kimchi/plans/*.md` inside `execute`).
 
 ## How detection works
 

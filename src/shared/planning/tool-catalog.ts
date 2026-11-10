@@ -175,6 +175,12 @@ export function isAdhocOnlyToolName(name: string): boolean {
  *  to recognize the plan handoff (e.g. the todos check-in boundary). */
 export const SUBMIT_PLAN_TOOL_NAME = "submit_plan"
 
+/** Tool name of the plan-revision tool (registered by the permissions
+ *  extension). Applies find/replace hunks to the already-submitted plan and
+ *  re-opens the review — the cheap rework round that avoids re-emitting the
+ *  full plan text as output tokens. */
+export const REVISE_PLAN_TOOL_NAME = "revise_plan"
+
 /** Framework-owned workflow control-plane tools that hand the turn over to
  *  user/orchestrator review, like submit_plan. */
 export const WORKFLOW_SUBMIT_RESULT_TOOL_NAME = "workflow_submit_result"
@@ -189,11 +195,15 @@ export const WORKFLOW_SUBMIT_QUESTIONS_TOOL_NAME = "workflow_submit_questions"
  *  explicitly instead of trusting the read-only exemption. */
 export const REVIEW_HANDOFF_TOOL_NAMES: ReadonlySet<string> = new Set([
 	SUBMIT_PLAN_TOOL_NAME,
+	REVISE_PLAN_TOOL_NAME,
 	WORKFLOW_SUBMIT_RESULT_TOOL_NAME,
 	WORKFLOW_SUBMIT_QUESTIONS_TOOL_NAME,
 ])
 
-export const SHARED_PLANNING_TOOLS: ToolEntry[] = [{ name: SUBMIT_PLAN_TOOL_NAME, modes: ["adhoc"] }]
+export const SHARED_PLANNING_TOOLS: ToolEntry[] = [
+	{ name: SUBMIT_PLAN_TOOL_NAME, modes: ["adhoc"] },
+	{ name: REVISE_PLAN_TOOL_NAME, modes: ["adhoc"] },
+]
 
 const PLANNING_CORE_TOOLS = SHARED_CORE_TOOLS.filter((tool) => tool.name !== "mcp")
 

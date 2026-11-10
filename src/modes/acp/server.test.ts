@@ -12742,9 +12742,9 @@ describe("KimchiAcpAgent set_project_trust pin sweep", () => {
 })
 
 // =============================================================================
-// Plan-review held prompts (submit_plan): the model turn ends in a plan
-// review — the PromptRequest must stay OPEN (single end_turn) until the
-// decision's follow-up turn drains, the review closes without work, or the
+// Plan-review held prompts (submit_plan / revise_plan): the model turn ends
+// in a plan review — the PromptRequest must stay OPEN (single end_turn) until
+// the decision's follow-up turn drains, the review closes without work, or the
 // client cancels. See .kimchi/plans/acp-plan-review-turn-lifecycle.md.
 // =============================================================================
 
@@ -12801,13 +12801,35 @@ describe("plan-review held prompt", () => {
 		})
 	}
 
+	/** Emit the revise_plan tool lifecycle pi-mono fires when a submitted plan
+	 * is reworked: same review-open hold semantics as submit_plan. */
+	function emitRevisePlan(heldFake: FakeAgentSession): void {
+		heldFake.emit({
+			type: "tool_execution_start",
+			toolCallId: "tc-revise-plan",
+			toolName: "revise_plan",
+			args: { changes: [{ find: "a", replace: "b" }] },
+		})
+		heldFake.emit({
+			type: "tool_execution_end",
+			toolCallId: "tc-revise-plan",
+			toolName: "revise_plan",
+			result: { content: [{ type: "text", text: "Plan revised." }] },
+			isError: false,
+		})
+	}
+
 	/** Start a prompt whose model turn ends in submit_plan; returns the pending
 	 * PromptRequest promise plus a flag flipped when it settles. */
-	async function startHeldPrompt(localAgent: KimchiAcpAgent, heldFake: FakeAgentSession) {
+	async function startHeldPrompt(
+		localAgent: KimchiAcpAgent,
+		heldFake: FakeAgentSession,
+		toolLifecycle: (fake: FakeAgentSession) => void = emitSubmitPlan,
+	) {
 		const res = await localAgent.newSession({ cwd: "/tmp", mcpServers: [] })
 		heldFake.promptImpl = async () => {
 			heldFake.emit({ type: "agent_start" })
-			emitSubmitPlan(heldFake)
+			toolLifecycle(heldFake)
 			// Turn ends here — session.prompt resolves. The review is pending.
 		}
 		let settled: { ok: boolean; value?: unknown; error?: unknown } | undefined
@@ -12837,6 +12859,18 @@ describe("plan-review held prompt", () => {
 
 		// Permissions reports the review closed without a follow-up turn
 		// (rework / dismissal) → the prompt resolves with exactly one end_turn.
+		notifyPlanReviewClosed(heldFake.sessionId)
+		await promptPromise
+		const settled = isSettled()
+		expect(settled?.ok).toBe(true)
+		expect((settled?.value as { stopReason: string })?.stopReason).toBe("end_turn")
+	})
+
+	it("holds a prompt that ends in revise_plan the same way as submit_plan", async () => {
+		const { localAgent, heldFake } = makeHeldAgent()
+		const { promptPromise, isSettled } = await startHeldPrompt(localAgent, heldFake, emitRevisePlan)
+		expect(isSettled()).toBeUndefined()
+
 		notifyPlanReviewClosed(heldFake.sessionId)
 		await promptPromise
 		const settled = isSettled()

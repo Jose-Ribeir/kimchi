@@ -1747,6 +1747,159 @@ describe("plan mode assumption detection", () => {
 	})
 })
 
+describe("revise_plan tool", () => {
+	type RevisePlanToolDef = {
+		execute: (
+			toolCallId: string,
+			params: { changes: { find: string; replace: string }[] },
+			signal: AbortSignal | undefined,
+			onUpdate: undefined,
+			ctx: ExtensionContext,
+		) => Promise<unknown>
+	}
+
+	const PLAN_V1 =
+		"# Plan: Cache Layer\n\n## Goal\nAdd caching layer.\n\n## Chunks\n\n### Chunk 1: Add cache primitive\n- **Accept When**: round-trip works"
+
+	async function submitPlan(
+		harness: ReturnType<typeof createPermissionsHarness>,
+		plan: string,
+		ctx: ExtensionContext,
+	): Promise<unknown> {
+		const tool = harness.registeredTools.get("submit_plan") as SubmitPlanToolDef | undefined
+		if (!tool) throw new Error("submit_plan tool was not registered with pi")
+		const result = await tool.execute("tc-submit-plan", { plan }, undefined, undefined, ctx)
+		await new Promise<void>((resolve) => setTimeout(resolve, 0))
+		return result
+	}
+
+	async function revisePlan(
+		harness: ReturnType<typeof createPermissionsHarness>,
+		changes: { find: string; replace: string }[],
+		ctx: ExtensionContext,
+	): Promise<{ content: { type: string; text: string }[]; details?: { submitted?: boolean } }> {
+		const tool = harness.registeredTools.get("revise_plan") as RevisePlanToolDef | undefined
+		if (!tool) throw new Error("revise_plan tool was not registered with pi")
+		const result = (await tool.execute("tc-revise-plan", { changes }, undefined, undefined, ctx)) as {
+			content: { type: "$text"; text: string }[]
+			details?: { submitted?: boolean }
+		}
+		await new Promise<void>((resolve) => setTimeout(resolve, 0))
+		return result
+	}
+
+	function errorText(result: { content: { type: string; text: string }[] }): string {
+		return result.content.map((c) => c.text).join("\n")
+	}
+
+	it("errors when no plan has been submitted in the session", async () => {
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		const ctx = createMockContext([])
+		await harness.fire("session_start", {}, ctx)
+
+		const result = await revisePlan(harness, [{ find: "x", replace: "y" }], ctx)
+		expect(errorText(result)).toContain("no plan has been submitted")
+		expect(result.details?.submitted).toBe(false)
+		expect(ctx.ui.select).not.toHaveBeenCalled()
+	})
+
+	it("applies hunks, re-saves the same plan file, and re-opens the review", async () => {
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		await harness.fire("session_start", {}, createMockContext([]))
+		const tmpDir = mkdtempSync(join(tmpdir(), "plan-revise-"))
+		try {
+			const ctx1 = createMockContext(["Rework the plan"])
+			ctx1.cwd = tmpDir
+			await submitPlan(harness, PLAN_V1, ctx1)
+
+			const ctx2 = createMockContext(["Rework the plan"])
+			ctx2.cwd = tmpDir
+			const result = await revisePlan(
+				harness,
+				[{ find: "Add caching layer.", replace: "Add caching layer with TTL." }],
+				ctx2,
+			)
+			expect(errorText(result)).toContain("Plan revised for review")
+			expect(result.details?.submitted).toBe(true)
+
+			const plansDir = join(tmpDir, ".kimchi", "plans")
+			expect(readdirSync(plansDir)).toEqual(["plan-cache-layer.md"])
+			const saved = readFileSync(join(plansDir, "plan-cache-layer.md"), "utf-8")
+			expect(saved).toContain("Add caching layer with TTL.")
+			expect(saved).not.toContain("Goal\nAdd caching layer.\n")
+			// The review menu re-opened with the revised plan.
+			expect(ctx2.ui.select).toHaveBeenCalled()
+		} finally {
+			rmSync(tmpDir, { recursive: true, force: true })
+		}
+	})
+
+	it("is atomic: an unmatched find changes neither the file nor the held plan", async () => {
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		await harness.fire("session_start", {}, createMockContext([]))
+		const tmpDir = mkdtempSync(join(tmpdir(), "plan-revise-atomic-"))
+		try {
+			const ctx1 = createMockContext(["Rework the plan"])
+			ctx1.cwd = tmpDir
+			await submitPlan(harness, PLAN_V1, ctx1)
+
+			const ctx2 = createMockContext(["Rework the plan"])
+			ctx2.cwd = tmpDir
+			const bad = await revisePlan(
+				harness,
+				[
+					{ find: "Add caching layer.", replace: "SHOULD NOT LAND" },
+					{ find: "absent text", replace: "x" },
+				],
+				ctx2,
+			)
+			expect(errorText(bad)).toContain("does not appear in the plan")
+			expect(errorText(bad)).toContain("No changes were applied")
+			expect(ctx2.ui.select).not.toHaveBeenCalled()
+
+			const saved = readFileSync(join(tmpDir, ".kimchi", "plans", "plan-cache-layer.md"), "utf-8")
+			expect(saved).toContain("Add caching layer.")
+			expect(saved).not.toContain("SHOULD NOT LAND")
+
+			// A follow-up revision still starts from the pre-failure text.
+			const ctx3 = createMockContext(["Rework the plan"])
+			ctx3.cwd = tmpDir
+			const ok = await revisePlan(
+				harness,
+				[{ find: "Add caching layer.", replace: "Add caching layer with TTL." }],
+				ctx3,
+			)
+			expect(errorText(ok)).toContain("Plan revised for review")
+		} finally {
+			rmSync(tmpDir, { recursive: true, force: true })
+		}
+	})
+
+	it("rejects revisions that would empty the plan", async () => {
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		await harness.fire("session_start", {}, createMockContext([]))
+		const ctx1 = createMockContext(["Rework the plan"])
+		await submitPlan(harness, PLAN_V1, ctx1)
+
+		const ctx2 = createMockContext([])
+		const result = await revisePlan(harness, [{ find: PLAN_V1, replace: "" }], ctx2)
+		expect(errorText(result)).toContain("would leave the plan empty")
+		expect(result.details?.submitted).toBe(false)
+	})
+
+	it("is session-scoped: another session's revise does not see this plan", async () => {
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		await harness.fire("session_start", {}, createMockContext([]))
+		const ctx1 = createMockContext(["Rework the plan"])
+		await submitPlan(harness, PLAN_V1, ctx1)
+
+		const other = createMockContext([], "another-session")
+		const result = await revisePlan(harness, [{ find: "Add caching layer.", replace: "x" }], other)
+		expect(errorText(result)).toContain("no plan has been submitted")
+		expect(result.details?.submitted).toBe(false)
+	})
+})
+
 describe("permissions prompt inheritance", () => {
 	afterEach(() => {
 		unregisterSessionPermissionFlagController(TEST_SESSION_ID)

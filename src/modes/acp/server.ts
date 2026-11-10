@@ -154,6 +154,7 @@ import {
 } from "../../sandbox/worker/acp-protocol.js"
 import { availableModelRefs, findModelByRef, refFromModel, splitModelRef } from "../../shared/model-ref.js"
 import { subscribePlanReviewClosed } from "../../shared/planning/plan-review-bus.js"
+import { REVISE_PLAN_TOOL_NAME, SUBMIT_PLAN_TOOL_NAME } from "../../shared/planning/tool-catalog.js"
 import { getVersion } from "../../utils.js"
 import { createAcpPermissionPrompter } from "./acp-prompter.js"
 import { createAcpUIContext } from "./acp-ui-context.js"
@@ -1453,8 +1454,8 @@ export class KimchiAcpAgent implements Agent {
 				// running the chained continues. session.prompt() resolves only after
 				// ALL chained calls complete.
 				if (!entry.turn) return
-				// Held plan-review turn: the turn ended in submit_plan and its
-				// follow-up execution hasn't started — keep the prompt OPEN so the
+				// Held plan-review turn: the turn ended in submit_plan or revise_plan
+				// and its follow-up execution hasn't started — keep the prompt OPEN so the
 				// review's outcome lands inside this PromptRequest. Finalization is
 				// driven by agent_settled (execution drained), the plan-review-closed
 				// notification (rework / dismissal), or cancel during the review
@@ -2463,12 +2464,14 @@ export class KimchiAcpAgent implements Agent {
 			}
 			case "tool_execution_end": {
 				if (!turn) return
-				// submit_plan ends the model turn while the review is still open:
-				// mark the hold so prompt() resolution skips finalizeTurn and the
-				// review's outcome drives finalization instead. A FAILED execution
-				// (validation error, worker path...) never opens a review — holding
-				// would strand the prompt forever.
-				if (event.toolName === "submit_plan" && !event.isError) turn.planReviewHeld = true
+				// submit_plan and revise_plan end the model turn while the review is
+				// still open: mark the hold so prompt() resolution skips finalizeTurn
+				// and the review's outcome drives finalization instead. A FAILED
+				// execution (validation error, worker path...) never opens a review —
+				// holding would strand the prompt forever.
+				if ((event.toolName === SUBMIT_PLAN_TOOL_NAME || event.toolName === REVISE_PLAN_TOOL_NAME) && !event.isError) {
+					turn.planReviewHeld = true
+				}
 				if (turn.hiddenToolCallIds.has(event.toolCallId)) {
 					this.retireToolCall(entry, turn, event.toolCallId, { removeFromHidden: true })
 					return
