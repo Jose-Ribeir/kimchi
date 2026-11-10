@@ -20,6 +20,7 @@ import { UNRETAINED_PLAN_NOTICE } from "../../shared/planning/plan-markdown.js"
 import {
 	emitPlanReviewDecision,
 	PLAN_REVIEW_DECISION_CHANNEL,
+	PLAN_REVIEW_REQUEST_CHANNEL,
 	resetPlanReviewClosedListenersForTests,
 	subscribePlanReviewClosed,
 } from "../../shared/planning/plan-review-bus.js"
@@ -1946,6 +1947,52 @@ describe("revise_plan tool", () => {
 		expect(errorText(result)).toContain("no plan has been submitted")
 		expect(result.details?.submitted).toBe(false)
 		expect(result.isError).toBe(true)
+	})
+
+	it("agent workers take a silent path that does not emit a plan-review request", async () => {
+		// A worker calling revise_plan must NOT register a new context on the
+		// module-global plan-review bus: that bus is shared across the process,
+		// and a worker revision would otherwise clobber any pending main-session
+		// review. submit_plan takes the same short-circuit; revise mirrors it.
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		const tmpDir = mkdtempSync(join(tmpdir(), "plan-revise-worker-"))
+		try {
+			const parentCtx = createMockContext(["Rework the plan"])
+			parentCtx.cwd = tmpDir
+			await harness.fire("session_start", {}, parentCtx)
+			await submitPlan(harness, PLAN_V1, parentCtx)
+
+			const workerRequests: string[] = []
+			const unsubscribeWorker = harness.pi.events.on(PLAN_REVIEW_REQUEST_CHANNEL, (data: unknown) => {
+				const payload = data as { planContent?: string }
+				if (payload?.planContent?.includes("TTL")) workerRequests.push("worker")
+			})
+
+			const workerCtx = createMockContext(["Rework the plan"], TEST_SESSION_ID) as ExtensionContext
+			workerCtx.cwd = tmpDir
+			// Workers spawned by the parent agent runner share the parent's
+			// session manager, so they see the parent's stored plan.
+			const result = (await runAsAgentWorker(() =>
+				revisePlan(harness, [{ find: "Add caching layer.", replace: "Add caching layer with TTL." }], workerCtx),
+			)) as {
+				content: { type: string; text: string }[]
+				details?: { submitted?: boolean; source?: string; planPath?: string; artifacts?: { path: string }[] }
+				terminate?: boolean
+			}
+
+			// Silent worker shape — no review surface, terminates the worker turn.
+			expect(result.details?.submitted).toBe(true)
+			expect(result.details?.source).toBe("worker")
+			expect(result.terminate).toBe(true)
+			expect(errorText(result)).toContain("Plan revised and saved to")
+
+			// The worker's revise must NOT have fired a plan-review request on the
+			// shared bus — that is the regression the short-circuit prevents.
+			expect(workerRequests).toEqual([])
+			unsubscribeWorker()
+		} finally {
+			rmSync(tmpDir, { recursive: true, force: true })
+		}
 	})
 })
 

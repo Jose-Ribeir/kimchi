@@ -1172,6 +1172,33 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 				const snapshotPath = saved.snapshotPath
 				submittedPlans.set(sessionId, { slug: stored.slug, text: planText, path: planPath })
 
+				const retainedPlanNote = snapshotPath ? `\nContinue from another worktree using: ${snapshotPath}` : ""
+
+				// Agent worker: silent revise, mirroring submit_plan's worker path.
+				// Saves the plan and terminates with no review emit — workers have
+				// no review surface, the parent orchestrator evaluates the plan, and
+				// the plannotator adapter skips worker sessions. Routing through
+				// openAdhocPlanReview would write to the module-global plan-review
+				// bus and clobber any pending main-session review.
+				if (isAgentWorker()) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: (planPath ? `Plan revised and saved to ${planPath}.` : "Plan revised.") + retainedPlanNote,
+							},
+						],
+						details: {
+							submitted: true,
+							source: "worker",
+							planPath,
+							...(planPath ? { artifacts: [{ path: planPath }] } : {}),
+							snapshotPath,
+						},
+						terminate: true,
+					}
+				}
+
 				return openAdhocPlanReview({ ctx, planText, planPath, snapshotPath, slug: stored.slug, verb: "revised" })
 			},
 		})
