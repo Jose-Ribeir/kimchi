@@ -1080,7 +1080,12 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 				return openAdhocPlanReview({ ctx, planText, planPath, snapshotPath, slug: activePlanSlug, verb: "submitted" })
 			},
 		})
+	}
 
+	// Revise-plan: same --print suppression as submit_plan. The review is a TUI
+	// flow, so the tool is dead surface in plain --print runs. ferment-oneshot
+	// print runs keep it (part of the planning catalog).
+	if (!shouldSuppressFermentModeTools()) {
 		pi.registerTool({
 			name: REVISE_PLAN_TOOL_NAME,
 			label: "Revise Plan",

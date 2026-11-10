@@ -12796,7 +12796,7 @@ describe("plan-review held prompt", () => {
 			type: "tool_execution_end",
 			toolCallId: "tc-submit-plan",
 			toolName: "submit_plan",
-			result: { content: [{ type: "text", text: "Plan submitted." }], details: { submitted: true } },
+			result: { content: [{ type: "text", text: "Plan submitted." }] },
 			isError: false,
 		})
 	}
@@ -12814,7 +12814,7 @@ describe("plan-review held prompt", () => {
 			type: "tool_execution_end",
 			toolCallId: "tc-revise-plan",
 			toolName: "revise_plan",
-			result: { content: [{ type: "text", text: "Plan revised." }], details: { submitted: true } },
+			result: { content: [{ type: "text", text: "Plan revised." }] },
 			isError: false,
 		})
 	}
@@ -12834,7 +12834,6 @@ describe("plan-review held prompt", () => {
 			toolName: "revise_plan",
 			result: {
 				content: [{ type: "text", text: "Error: find text does not appear in the plan." }],
-				details: { submitted: false },
 			},
 			isError: true,
 		})

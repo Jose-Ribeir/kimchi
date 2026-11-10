@@ -2468,14 +2468,15 @@ export class KimchiAcpAgent implements Agent {
 				// still open: mark the hold so prompt() resolution skips finalizeTurn
 				// and the review's outcome drives finalization instead. The hold needs
 				// proof the review actually opened: a FAILED execution (validation
-				// error, unsaved plan...) ends with submitted:false and no review —
-				// holding on !isError alone would strand the prompt forever, since
-				// neither the closed-notification nor execution can ever fire.
-				if (
-					(event.toolName === SUBMIT_PLAN_TOOL_NAME || event.toolName === REVISE_PLAN_TOOL_NAME) &&
-					!event.isError &&
-					(event.result as { details?: { submitted?: boolean } } | undefined)?.details?.submitted === true
-				) {
+				// error, unsaved plan...) ends with isError:true and never opened a
+				// review — holding on !isError alone would strand the prompt
+				// forever, since neither the closed-notification nor execution can
+				// ever fire. Every revise_plan / submit_plan failure return in the
+				// permissions extension sets isError:true, so this check alone is
+				// sufficient; checking `details.submitted` would only guard against
+				// a future failure return that forgot the flag at the cost of a
+				// circular test dependency on hand-shaped pi-mono event fakes.
+				if ((event.toolName === SUBMIT_PLAN_TOOL_NAME || event.toolName === REVISE_PLAN_TOOL_NAME) && !event.isError) {
 					turn.planReviewHeld = true
 				}
 				if (turn.hiddenToolCallIds.has(event.toolCallId)) {
