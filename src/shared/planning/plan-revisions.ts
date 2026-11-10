@@ -39,7 +39,12 @@ export function applyPlanChanges(text: string, changes: readonly PlanRevisionCha
 	const located: LocatedChange[] = []
 	for (let i = 0; i < changes.length; i++) {
 		const change = changes[i]
-		if (!change.find) return { ok: false, error: `Change ${i + 1}: "find" text is empty.` }
+		if (typeof change?.find !== "string" || !change.find) {
+			return { ok: false, error: `Change ${i + 1}: "find" text is empty or missing.` }
+		}
+		if (typeof change.replace !== "string") {
+			return { ok: false, error: `Change ${i + 1}: "replace" text is missing (use an empty string to delete).` }
+		}
 		const first = text.indexOf(change.find)
 		if (first === -1) {
 			return {

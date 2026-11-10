@@ -274,6 +274,15 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 	let preFermentMode: PermissionModeState | undefined
 	let lastActiveFermentId: string | undefined
 	let cliMode: PermissionMode | undefined
+	// Clears the plan-crafting state for a session: the stale slug anchor and
+	// the revision store move together, so no revision can target a plan whose
+	// lifecycle already ended. (executeInCloud restores on spawn failure and
+	// hands the pairing manually.)
+	function clearPlanSubmissionState(sessionId: string): void {
+		activePlanSlug = undefined
+		submittedPlans.delete(sessionId)
+	}
+
 	// Session-held slug of the plan currently being drafted. Kept across rework
 	// turns so rewrites overwrite the same file even if the plan title changes;
 	// released when the plan is approved (execute / start-as-ferment) or the
@@ -444,9 +453,8 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 		}
 		if (current === "plan" && next.mode !== "plan") {
 			restoreToolsFromPlanMode()
-			activePlanSlug = undefined
+			clearPlanSubmissionState(ctx.sessionManager.getSessionId())
 			planStopNudgeCounts.delete(ctx.sessionManager.getSessionId())
-			submittedPlans.delete(ctx.sessionManager.getSessionId())
 		}
 		if (next.mode === "plan") applyPlanModeTools()
 		// Dismiss all active permission prompts so tool_call handlers re-evaluate
@@ -652,9 +660,8 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 		appliedPermissionMode = undefined
 		applyingPermissionMode = false
 		cliMode = undefined
-		activePlanSlug = undefined
+		clearPlanSubmissionState(ctx.sessionManager.getSessionId())
 		planStopNudgeCounts.delete(ctx.sessionManager.getSessionId())
-		submittedPlans.delete(ctx.sessionManager.getSessionId())
 		const { errors } = doLoadConfig(ctx)
 		bundledSkillCliRoot = resolveBundledSkillsDir()
 		if (bundledSkillCliRoot === null) {
@@ -749,12 +756,13 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 		})
 	})
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", (_event, ctx) => {
 		unsubscribePermissionFlagController?.()
 		unsubscribePermissionFlagController = undefined
 		currentCtx = undefined
 		appliedPermissionMode = undefined
 		applyingPermissionMode = false
+		submittedPlans.delete(ctx.sessionManager.getSessionId())
 	})
 
 	const blocks = createSystemPromptBlocks(pi, "permissions")
@@ -1026,6 +1034,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 					return {
 						content: [{ type: "text", text: "Error: plan text is empty." }],
 						details: { submitted: false },
+						isError: true,
 					}
 				}
 
@@ -1104,6 +1113,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 					return {
 						content: [{ type: "text", text: "Error: no changes provided. Pass at least one find/replace hunk." }],
 						details: { submitted: false },
+						isError: true,
 					}
 				}
 				const sessionId = ctx.sessionManager.getSessionId()
@@ -1117,6 +1127,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 							},
 						],
 						details: { submitted: false },
+						isError: true,
 					}
 				}
 				const applied = applyPlanChanges(stored.text, changes)
@@ -1124,6 +1135,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 					return {
 						content: [{ type: "text", text: `Error: ${applied.error}\n\nNo changes were applied.` }],
 						details: { submitted: false },
+						isError: true,
 					}
 				}
 				const planText = applied.text
@@ -1136,36 +1148,29 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 							},
 						],
 						details: { submitted: false },
+						isError: true,
 					}
 				}
 
-				// Overwrite the same plan file (stable slug) and hold the revised text
-				// for further rounds.
+				// Overwrite the same plan file (stable slug). A failed save fails the
+				// revision closed: reporting success would diverge the held text from
+				// the on-disk plan (and its artifact claim) for all later rounds.
 				const saved = saveToolPlan(ctx, ctx, toolCallId, "permissions", { name: stored.slug, planText })
-				const planPath = saved?.path ?? stored.path
-				const snapshotPath = saved?.snapshotPath
-				submittedPlans.set(sessionId, { slug: stored.slug, text: planText, path: planPath })
-
-				// Agent worker: silent revise, mirroring submit_plan's worker path —
-				// saves the plan and ends the turn with no review emit.
-				if (isAgentWorker()) {
+				if (!saved?.path) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: planPath ? `Plan revised and saved to ${planPath}.` : "Plan revised.",
+								text: "Error: the plan file could not be saved — the revision was not applied. Check the write permissions on the plans directory and retry.",
 							},
 						],
-						details: {
-							submitted: true,
-							source: "worker",
-							planPath,
-							...(planPath ? { artifacts: [{ path: planPath }] } : {}),
-							snapshotPath,
-						},
-						terminate: true,
+						details: { submitted: false },
+						isError: true,
 					}
 				}
+				const planPath = saved.path
+				const snapshotPath = saved.snapshotPath
+				submittedPlans.set(sessionId, { slug: stored.slug, text: planText, path: planPath })
 
 				return openAdhocPlanReview({ ctx, planText, planPath, snapshotPath, slug: stored.slug, verb: "revised" })
 			},
@@ -1186,8 +1191,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 			// already executable: no transition.
 			if (!releaseFromPlanForApproval(ctx)) return
 			await executePlan(ctx, planPath, planText, reviewedPlanSlug)
-			activePlanSlug = undefined
-			submittedPlans.delete(ctx.sessionManager.getSessionId())
+			clearPlanSubmissionState(ctx.sessionManager.getSessionId())
 		}
 
 		// Spawn a foreground remote agent to execute the plan in a cloud sandbox.
@@ -1207,8 +1211,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 			const releasedMode = getRuntimePermissionMode().mode
 			const approvedSlug = activePlanSlug
 			const approvedRevision = submittedPlans.get(ctx.sessionManager.getSessionId())
-			activePlanSlug = undefined
-			submittedPlans.delete(ctx.sessionManager.getSessionId())
+			clearPlanSubmissionState(ctx.sessionManager.getSessionId())
 			pi.events.emit(PERMISSION_EVENTS.PLAN_APPROVED, { planPath })
 			const cloudDescription = `${planText.slice(0, 60)}${planText.length > 60 ? "..." : ""}`
 			try {
@@ -1271,8 +1274,7 @@ export default function permissionsExtension(pi: ExtensionAPI): void {
 			await executeLocally()
 		} else if (payload.decision === "start_ferment") {
 			// Converted into a ferment — same release as the execute path.
-			activePlanSlug = undefined
-			submittedPlans.delete(ctx.sessionManager.getSessionId())
+			clearPlanSubmissionState(ctx.sessionManager.getSessionId())
 			// ── Tool-swap contract ────────────────────────────────────────────────
 			// This is a SNAPSHOT SWAP that takes effect at the next turn boundary —
 			// there is no explicit handoff message and no model-visible notification.

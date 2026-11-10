@@ -82,18 +82,22 @@ test("plan revise flow: rework applies hunks and re-opens the review", async ({ 
 			await waitForText(terminal, "Revise Plan", { timeoutMs: STREAM_TIMEOUT_MS })
 			trace.step("revise_plan tool call rendered")
 
-			// Stage 4: the same plan file was overwritten in place with the hunk.
+			// Stage 4: the review re-opens with the reworked plan. The first menu
+			// was dismissed at stage 2 (the placeholder replaced it), so "Execute
+			// the plan" on screen again can only be the NEW menu — and waiting for
+			// it proves revise_plan's execute completed. Selecting the default
+			// proves the live menu consumes keys (a stale render cannot).
+			await waitForText(terminal, "Execute the plan", { timeoutMs: STREAM_TIMEOUT_MS })
+			trace.step("review re-opened with the revised plan")
+			terminal.keyPress(Key.Enter)
+			await waitForText(terminal, "auto → shift+tab", { timeoutMs: STREAM_TIMEOUT_MS })
+			trace.step("re-opened review consumed Enter — plan mode released into auto")
+
+			// Stage 5: the same plan file was overwritten in place with the hunk.
 			const saved = readFileSync(join(fixture.workDir, ".kimchi", "plans", "revise-demo-plan.md"), "utf-8")
 			expect(saved).toContain(revisedGoal)
 			expect(saved).not.toContain("with hello.")
 			trace.step("plan file overwritten in place with the revision")
-
-			// Stage 5: the review re-opened. Selecting the default "Execute the
-			// plan" proves the live menu consumes keys (a stale render cannot) and
-			// releases plan mode into auto.
-			terminal.keyPress(Key.Enter)
-			await waitForText(terminal, "auto → shift+tab", { timeoutMs: STREAM_TIMEOUT_MS })
-			trace.step("re-opened review consumed Enter — plan mode released into auto")
 		},
 	)
 })

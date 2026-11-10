@@ -47,6 +47,7 @@ export function isNudgeSuppressed(count: number): boolean {
 }
 
 import { markHarnessSteer } from "../../extensions/steer-marker.js"
+import { REVISE_PLAN_TOOL_NAME, SUBMIT_PLAN_TOOL_NAME } from "./tool-catalog.js"
 
 /**
  * Nudge text for plan mode (interactive, non-worker session).
@@ -94,7 +95,7 @@ export const FERMENT_SCOPING_STOP_NUDGE = FERMENT_SCOPING_STOP_NUDGE_INTERACTIVE
  * {@link hasFermentScopingCompletionSignal}.
  */
 export function hasPlanSubmitToolCall(toolNames: string[]): boolean {
-	return toolNames.includes("submit_plan") || toolNames.includes("revise_plan")
+	return toolNames.includes(SUBMIT_PLAN_TOOL_NAME) || toolNames.includes(REVISE_PLAN_TOOL_NAME)
 }
 
 /**

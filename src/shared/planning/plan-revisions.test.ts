@@ -30,6 +30,13 @@ describe("applyPlanChanges", () => {
 		if (!out.ok) expect(out.error).toContain('"find" text is empty')
 	})
 
+	it("rejects a missing replace instead of writing the literal 'undefined'", () => {
+		// Providers can drop schema fields; params arrive via a bare cast.
+		const out = applyPlanChanges("abc", [{ find: "b", replace: undefined as unknown as string }])
+		expect(out.ok).toBe(false)
+		if (!out.ok) expect(out.error).toContain('"replace" text is missing')
+	})
+
 	it("rejects a find that does not match", () => {
 		const out = applyPlanChanges("real text", [{ find: "imaginary", replace: "x" }])
 		expect(out.ok).toBe(false)

@@ -12796,7 +12796,7 @@ describe("plan-review held prompt", () => {
 			type: "tool_execution_end",
 			toolCallId: "tc-submit-plan",
 			toolName: "submit_plan",
-			result: { content: [{ type: "text", text: "Plan submitted." }] },
+			result: { content: [{ type: "text", text: "Plan submitted." }], details: { submitted: true } },
 			isError: false,
 		})
 	}
@@ -12814,8 +12814,29 @@ describe("plan-review held prompt", () => {
 			type: "tool_execution_end",
 			toolCallId: "tc-revise-plan",
 			toolName: "revise_plan",
-			result: { content: [{ type: "text", text: "Plan revised." }] },
+			result: { content: [{ type: "text", text: "Plan revised." }], details: { submitted: true } },
 			isError: false,
+		})
+	}
+
+	/** Emit the revise_plan lifecycle for a FAILED revision (unmatched hunk):
+	 * the tool returns an error result and no review ever opens. */
+	function emitFailedRevisePlan(heldFake: FakeAgentSession): void {
+		heldFake.emit({
+			type: "tool_execution_start",
+			toolCallId: "tc-revise-plan",
+			toolName: "revise_plan",
+			args: { changes: [{ find: "absent", replace: "b" }] },
+		})
+		heldFake.emit({
+			type: "tool_execution_end",
+			toolCallId: "tc-revise-plan",
+			toolName: "revise_plan",
+			result: {
+				content: [{ type: "text", text: "Error: find text does not appear in the plan." }],
+				details: { submitted: false },
+			},
+			isError: true,
 		})
 	}
 
@@ -12872,6 +12893,18 @@ describe("plan-review held prompt", () => {
 		expect(isSettled()).toBeUndefined()
 
 		notifyPlanReviewClosed(heldFake.sessionId)
+		await promptPromise
+		const settled = isSettled()
+		expect(settled?.ok).toBe(true)
+		expect((settled?.value as { stopReason: string })?.stopReason).toBe("end_turn")
+	})
+
+	it("does not hold a prompt whose revise_plan failed (no review ever opened)", async () => {
+		const { localAgent, heldFake } = makeHeldAgent()
+		const { promptPromise, isSettled } = await startHeldPrompt(localAgent, heldFake, emitFailedRevisePlan)
+		// The failed revision opens no review window: the prompt must settle
+		// normally right after the model turn ends — no notifyPlanReviewClosed
+		// exists or is needed to release it.
 		await promptPromise
 		const settled = isSettled()
 		expect(settled?.ok).toBe(true)

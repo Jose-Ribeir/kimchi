@@ -1777,12 +1777,13 @@ describe("revise_plan tool", () => {
 		harness: ReturnType<typeof createPermissionsHarness>,
 		changes: { find: string; replace: string }[],
 		ctx: ExtensionContext,
-	): Promise<{ content: { type: string; text: string }[]; details?: { submitted?: boolean } }> {
+	): Promise<{ content: { type: string; text: string }[]; details?: { submitted?: boolean }; isError?: boolean }> {
 		const tool = harness.registeredTools.get("revise_plan") as RevisePlanToolDef | undefined
 		if (!tool) throw new Error("revise_plan tool was not registered with pi")
 		const result = (await tool.execute("tc-revise-plan", { changes }, undefined, undefined, ctx)) as {
-			content: { type: "$text"; text: string }[]
+			content: { type: string; text: string }[]
 			details?: { submitted?: boolean }
+			isError?: boolean
 		}
 		await new Promise<void>((resolve) => setTimeout(resolve, 0))
 		return result
@@ -1800,7 +1801,52 @@ describe("revise_plan tool", () => {
 		const result = await revisePlan(harness, [{ find: "x", replace: "y" }], ctx)
 		expect(errorText(result)).toContain("no plan has been submitted")
 		expect(result.details?.submitted).toBe(false)
+		expect(result.isError).toBe(true)
 		expect(ctx.ui.select).not.toHaveBeenCalled()
+	})
+
+	it("fails closed when the plan file cannot be saved (held text and review untouched)", async () => {
+		const harness = createPermissionsHarness(["read", "bash"], { plan: true })
+		await harness.fire("session_start", {}, createMockContext([]))
+		const tmpDir = mkdtempSync(join(tmpdir(), "plan-revise-save-fail-"))
+		try {
+			const ctx1 = createMockContext(["Rework the plan"])
+			ctx1.cwd = tmpDir
+			await submitPlan(harness, PLAN_V1, ctx1)
+
+			// The save fails when the plans directory cannot be created.
+			const broken = createMockContext([])
+			broken.cwd = "/dev/null/nonexistent-path-that-cannot-be-created"
+			const failed = await revisePlan(
+				harness,
+				[{ find: "Add caching layer.", replace: "Add caching layer with TTL." }],
+				broken,
+			)
+			expect(errorText(failed)).toContain("plan file could not be saved")
+			expect(failed.details?.submitted).toBe(false)
+			expect(failed.isError).toBe(true)
+			expect(broken.ui.select).not.toHaveBeenCalled()
+
+			// The on-disk plan still holds the pre-failure text...
+			const saved = readFileSync(join(tmpDir, ".kimchi", "plans", "plan-cache-layer.md"), "utf-8")
+			expect(saved).toContain("Add caching layer.")
+			expect(saved).not.toContain("with TTL")
+
+			// ...and so does the held text: a retry applies against the ORIGINAL plan.
+			const ctx2 = createMockContext(["Rework the plan"])
+			ctx2.cwd = tmpDir
+			const ok = await revisePlan(
+				harness,
+				[{ find: "Add caching layer.", replace: "Add caching layer with TTL." }],
+				ctx2,
+			)
+			expect(errorText(ok)).toContain("Plan revised for review")
+			expect(readFileSync(join(tmpDir, ".kimchi", "plans", "plan-cache-layer.md"), "utf-8")).toContain(
+				"Add caching layer with TTL.",
+			)
+		} finally {
+			rmSync(tmpDir, { recursive: true, force: true })
+		}
 	})
 
 	it("applies hunks, re-saves the same plan file, and re-opens the review", async () => {
@@ -1855,6 +1901,7 @@ describe("revise_plan tool", () => {
 			)
 			expect(errorText(bad)).toContain("does not appear in the plan")
 			expect(errorText(bad)).toContain("No changes were applied")
+			expect(bad.isError).toBe(true)
 			expect(ctx2.ui.select).not.toHaveBeenCalled()
 
 			const saved = readFileSync(join(tmpDir, ".kimchi", "plans", "plan-cache-layer.md"), "utf-8")
@@ -1885,6 +1932,7 @@ describe("revise_plan tool", () => {
 		const result = await revisePlan(harness, [{ find: PLAN_V1, replace: "" }], ctx2)
 		expect(errorText(result)).toContain("would leave the plan empty")
 		expect(result.details?.submitted).toBe(false)
+		expect(result.isError).toBe(true)
 	})
 
 	it("is session-scoped: another session's revise does not see this plan", async () => {
@@ -1897,6 +1945,7 @@ describe("revise_plan tool", () => {
 		const result = await revisePlan(harness, [{ find: "Add caching layer.", replace: "x" }], other)
 		expect(errorText(result)).toContain("no plan has been submitted")
 		expect(result.details?.submitted).toBe(false)
+		expect(result.isError).toBe(true)
 	})
 })
 

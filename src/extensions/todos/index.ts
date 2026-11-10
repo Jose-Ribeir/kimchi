@@ -1,6 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent"
 import { isResourceEnabled } from "../../resources/store.js"
-import { REVIEW_HANDOFF_TOOL_NAMES, SUBMIT_PLAN_TOOL_NAME } from "../../shared/planning/tool-catalog.js"
+import {
+	REVIEW_HANDOFF_TOOL_NAMES,
+	REVISE_PLAN_TOOL_NAME,
+	SUBMIT_PLAN_TOOL_NAME,
+} from "../../shared/planning/tool-catalog.js"
 import { isAgentWorker } from "../agent-worker-context.js"
 import { FERMENT_V2_CUSTOM_ENTRY_TYPE } from "../ferment-v2/constants.js"
 import { restoreFermentV2 } from "../ferment-v2/reducer.js"
@@ -718,12 +722,14 @@ export default function todosExtension(pi: ExtensionAPI): void {
 		// counters.
 		if (event.toolName === CONFIRM_TODOS_TOOL_NAME) return
 
-		// submit_plan ends the turn for user review — the plan handoff is a
-		// request boundary for todo hygiene (see armPlanSubmissionCheckin).
-		// Like confirm_todos, the submission is neither write nor work: it
-		// never increments the counters, so a model that pairs its final todo
-		// write with submit_plan stays suppressed.
-		if (event.toolName === SUBMIT_PLAN_TOOL_NAME) {
+		// submit_plan and revise_plan end the turn for user review — the plan
+		// handoff is a request boundary for todo hygiene (see
+		// armPlanSubmissionCheckin). Like confirm_todos, the submission is neither
+		// write nor work: it never increments the counters, so a model that pairs
+		// its final todo write with the plan handoff stays suppressed.
+		// (workflow_submit_* are deliberately not at this site: their arming
+		// semantics outside the plan flow are untraced — see the PR follow-up.)
+		if (event.toolName === SUBMIT_PLAN_TOOL_NAME || event.toolName === REVISE_PLAN_TOOL_NAME) {
 			armPlanSubmissionCheckin(pi, sessionId, ctx.hasUI)
 			return
 		}

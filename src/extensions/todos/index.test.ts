@@ -927,6 +927,17 @@ describe("todo check-in gate", () => {
 		expect(message.content).toContain("harness reminder, not the user's message")
 	})
 
+	it("arms the plan-submission check-in for revise_plan exactly like submit_plan", async () => {
+		const harness = createTodosHarness()
+		const ctx = createContext("session", [])
+		await harness.fire("session_start", { reason: "new" }, ctx)
+		applyWriteTodos({ todos: [{ content: "task", status: "in_progress" }] }, "session")
+		await harness.fire("tool_execution_end", { toolName: "revise_plan", isError: false }, ctx)
+
+		const steers = steerCallsByReason(harness.sendMessage, "plan_submission")
+		expect(steers).toHaveLength(1)
+	})
+
 	it("releases work after a real write and after a successful confirmation", async () => {
 		const harness = createTodosHarness()
 		const ctx = createToolContext("session", [])
