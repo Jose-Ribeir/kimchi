@@ -73,7 +73,6 @@ import {
 } from "../../cli-auth/auth-methods.js"
 import { startCallbackServer } from "../../cli-auth/callback-server.js"
 import { authenticateViaBrowser } from "../../cli-auth/index.js"
-import { getSessionState } from "../../extensions/bash-background/session-registry.js"
 import { exchangeAuthorizationCode, type KimchiOrganization, listUserOrganizations } from "../../cli-auth/oauth.js"
 import {
 	clearApiKey,
@@ -96,6 +95,7 @@ import {
 	splitModelDisplayName,
 } from "../../extensions/auto-model/constants.js"
 import { getAutoRoutingState, isRoutedModel } from "../../extensions/auto-model/state.js"
+import { getSessionState } from "../../extensions/bash-background/session-registry.js"
 import { resolveMarkerForDisplay } from "../../extensions/display-budget.js"
 import { readE2eSeam } from "../../extensions/e2e-seam.js"
 import { getRawErrorMessage } from "../../extensions/error-preservation.js"
